@@ -195,6 +195,12 @@ def recall_by_type(lo, hi):
     return pd.DataFrame(rows)
 
 
+def refresh_band(lo, hi, base_rate, fn, fp):
+    """Everything that depends on the two thresholds and the assumptions."""
+    cm, summary, comp = operating_point(lo, hi, base_rate, fn, fp)
+    return cm, summary, comp, recall_by_type(lo, hi), cost_curve(lo, hi, base_rate, fn, fp)
+
+
 def baselines_table():
     b = ART["baselines"]
     rows = []
@@ -274,20 +280,24 @@ with gr.Blocks(title="Solder joint inspection") as demo:
         gr.Markdown("**Dataset composition**")
         gr.Dataframe(value=dataset_table(), interactive=False)
 
+    # One handler updates every threshold-dependent view at once. While a
+    # slider is dragged, "always_last" drops the stale positions in between
+    # and runs only the newest one, and the loading timer is hidden, so the
+    # tables update in place instead of flickering.
     band_inputs = [lo, hi, base_rate, fn, fp]
+    band_outputs = [op_cm, op_summary, op_comp, op_types, curve]
+    quiet = {"show_progress": "hidden", "trigger_mode": "always_last"}
     for ctrl in band_inputs:
-        ctrl.change(operating_point, band_inputs, [op_cm, op_summary, op_comp])
-        ctrl.change(cost_curve, band_inputs, curve)
+        ctrl.change(refresh_band, band_inputs, band_outputs, **quiet)
+    # Re-running the model on the uploaded image is slower, so do it once the
+    # slider is let go rather than on every step of the drag.
     for ctrl in (lo, hi):
-        ctrl.change(recall_by_type, [lo, hi], op_types)
-        ctrl.change(inspect, [img_in, lo, hi], [img_out, verdict, dets])
+        ctrl.release(inspect, [img_in, lo, hi], [img_out, verdict, dets], show_progress="minimal")
     go_btn.click(inspect, [img_in, lo, hi], [img_out, verdict, dets])
     img_in.change(inspect, [img_in, lo, hi], [img_out, verdict, dets])
-    conf.change(per_class, conf, [pc_table, pc_cm])
+    conf.change(per_class, conf, [pc_table, pc_cm], **quiet)
 
-    demo.load(operating_point, band_inputs, [op_cm, op_summary, op_comp])
-    demo.load(cost_curve, band_inputs, curve)
-    demo.load(recall_by_type, [lo, hi], op_types)
+    demo.load(refresh_band, band_inputs, band_outputs)
     demo.load(per_class, conf, [pc_table, pc_cm])
 
 
